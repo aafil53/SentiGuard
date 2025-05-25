@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "YT Hate‑Speech Blocker",
+  "version": "1.0",
+  "permissions": ["scripting", "storage"],
+  "host_permissions": ["*://*.youtube.com/*"],
+  "action": { "default_popup": "popup.html" },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content.js"]
+    }
+  ]
+}
