@@ -1,74 +1,65 @@
 # YouTube Hate‑Speech Blocker
 
-A Chrome Extension + FastAPI ML Backend that detects and blocks toxic or hateful comments in YouTube comment sections in near real time.
+Chrome extension + FastAPI backend that classifies YouTube comments for toxicity and hides those above a threshold.
 
-## Prerequisites
-- Google Chrome or Chromium-based browser
-- Python 3.9+ (recommended 3.10/3.11)
-- pip
-
-Optional:
-- Node not required (no bundler). The extension is plain JS.
-
-## 1) Backend: FastAPI (toxicity classification)
-
-### Setup
-1. Create and activate a virtual environment
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
-2. Install dependencies
-   ```bash
-   pip install -r backend/requirements.txt
-   ```
-   Note: Installing `torch` may take a while. If you need CPU-only wheels, see PyTorch docs.
-
-3. (Optional) Create a `.env` file in `backend/` to tweak performance and defaults
-   ```env
-   THRESHOLD=0.7             # default toxicity threshold
-   TORCH_NUM_THREADS=1       # limit CPU threads
-   SCORE_CACHE_CAPACITY=5000 # LRU cache size for repeated texts
-   ```
-
-### Run the server
+## Quickstart
+1) Backend (FastAPI)
+- Create venv and install deps
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+```
+- Start API
 ```bash
 uvicorn backend.app:app --host 0.0.0.0 --port 8000 --workers 1
 ```
-The first request will download the `unitary/toxic-bert` model from Hugging Face and cache it locally.
 
-### Verify the API
-The `/check` endpoint accepts a JSON body with `texts` (array of strings) and optional `threshold`.
+2) Extension (Chrome)
+- Go to `chrome://extensions/` → enable Developer mode
+- Click "Load unpacked" → select the `extension/` folder
+- Open a YouTube video page; the extension will batch‑check comments
+
+## Verify
+- API: send a test request
 ```bash
-curl -X POST http://127.0.0.1:8000/check \
+curl -s -X POST http://127.0.0.1:8000/check \
   -H 'Content-Type: application/json' \
-  -d '{"texts":["You are nice","I hate you"],"threshold":0.7}'
+  -d '{"texts":["You are kind","I hate you"],"threshold":0.7}' | jq
 ```
-Expected response:
-```json
-{"results":[false,true],"scores":[0.12,0.93]}
+- Extension: click the icon → toggle Enabled and adjust Threshold. Hateful comments should hide automatically when loaded.
+
+## Configuration
+Create `backend/.env` (optional) to tune defaults:
+```env
+THRESHOLD=0.7             # default toxicity threshold
+TORCH_NUM_THREADS=1       # CPU thread limit for PyTorch
+SCORE_CACHE_CAPACITY=5000 # in‑memory LRU cache size
 ```
+If you run the API on a non‑default host/port, update `API_URL` in `extension/content.js`.
 
-## 2) Extension: Load into Chrome
-1. Build step not needed. Open Chrome and go to `chrome://extensions/`
-2. Enable "Developer mode" (top-right)
-3. Click "Load unpacked" and select the `extension/` folder
-4. Ensure the backend is running at `http://127.0.0.1:8000` (default in `content.js`)
-5. Open a YouTube video page; the content script will observe and batch-check comments
+## What’s inside
+- `backend/app.py`: FastAPI app using `unitary/toxic-bert`
+  - Batched inference, startup warmup
+  - Dynamic quantization (if available) for faster CPU and smaller model
+  - In‑memory LRU cache to skip recomputation for repeated texts
+- `extension/`
+  - `content.js`: MutationObserver → debounced, chunked requests; per‑item filtering; pref cache
+  - `manifest.json`: minimal permissions; `document_idle` load
+  - `popup.html`, `popup.js`, `style.css`: enable/threshold controls
 
-### Extension controls
-- Click the extension icon to open the popup
-- Toggle "Enabled" and adjust the "Threshold" slider (saved in `chrome.storage`)
-
-## Notes & Performance
-- The content script batches requests, deduplicates processed nodes, and debounces to reduce load
-- The backend performs batched inference, dynamic quantization (if available), warmup on startup, and caches scores via an in-memory LRU
+## Performance tips
+- First run downloads the model (one‑time cold start). Subsequent runs use the cache.
+- Keep `TORCH_NUM_THREADS=1` (or small) on small CPUs to avoid contention.
+- For heavier traffic, consider:
+  - Smaller model or distilled variant on HF
+  - ONNX Runtime / BetterTransformer for speedups
+  - Running the API near the client to reduce latency
 
 ## Troubleshooting
-- If `torch` fails to install, consult the official install selector for CPU wheels
-- First request is slow due to model download; subsequent runs use the local cache
-- If you change the backend port or host, update `API_URL` in `extension/content.js`
-- If Chrome blocks the extension, ensure only required permissions are present in `extension/manifest.json`
+- PyTorch install slow/fails: consult official selector for CPU‑only wheels.
+- 404/connection errors from the extension: ensure the API is running and `API_URL` matches.
+- Comments not hiding: verify popup "Enabled" is on and threshold isn’t too high.
 
-## Optional: YouTube API helper
-`backend/youtube_fetcher.py` contains an example of fetching comments with the YouTube Data API. To use it, set `YOUTUBE_API_KEY` in a `.env` and run the script directly.
+## License
+MIT (or your preferred license).
